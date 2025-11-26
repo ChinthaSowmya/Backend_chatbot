@@ -6,9 +6,9 @@
 // ==========================================
 // CONFIGURATION
 // ==========================================
-
-const API_URL = 'http://localhost:8000'; // Backend URL
-let API_KEY = 'X2Cli1ZSPhHHAHlfZkOEPRWIqtd1TQD9ErH705-HMc4'; // Your API key
+const API_URL = import.meta.env.VITE_BACKEND_URL;
+let API_KEY = import.meta.env.VITE_API_KEY;
+ // Your API key
 
 // ==========================================
 // DOM ELEMENTS
