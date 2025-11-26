@@ -14,7 +14,8 @@ from pathlib import Path
 # ABSOLUTE FIX FOR RENDER + OPENAI PROXY BUG
 # ----------------------------------------------------------------------
 os.environ.pop("HTTP_PROXY", None)
-os.environ.pop("HTTPS_PROXY", None")
+os.environ.pop("HTTPS_PROXY", None)
+
 
 import httpx
 from openai import OpenAI
