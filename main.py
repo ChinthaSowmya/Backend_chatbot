@@ -1,6 +1,12 @@
 """
-SCRIPTBEES ASSISTANT - HEAVY VERSION (FAISS + TORCH + SENTENCE-TRANSFORMERS)
-Render-compatible — removed invalid httpx 'proxies' kw
+SCRIPTBEES ASSISTANT - FINAL CLEAN VERSION
+-----------------------------------------
+✔ Uses ScriptBees FAISS documents only
+✔ Always returns REAL ScriptBees URLs from pages_meta.json
+✔ NO fake websites in answer
+✔ NO voice output
+✔ NO proxies (safe for Render)
+✔ Stable OpenAI generation
 """
 
 import os
@@ -11,9 +17,9 @@ import hashlib
 from typing import List
 from pathlib import Path
 
-# ======================================================================
-# REMOVE PROXY ENV VARIABLES (Render may inject these -> avoid proxy use)
-# ======================================================================
+# ------------------------------
+# Remove proxy variables (Render injects these)
+# ------------------------------
 os.environ.pop("HTTP_PROXY", None)
 os.environ.pop("HTTPS_PROXY", None)
 os.environ.pop("http_proxy", None)
@@ -22,15 +28,15 @@ os.environ.pop("https_proxy", None)
 import httpx
 from openai import OpenAI
 
-# -> Create a safe httpx client WITHOUT passing 'proxies' (some httpx builds don't accept it)
+# Create safe HTTP client
 safe_http_client = httpx.Client(
-    timeout=30,
+    timeout=40,
     verify=True,
 )
 
-# ======================================================================
-# ENV LOADING
-# ======================================================================
+# ------------------------------
+# Load env
+# ------------------------------
 from dotenv import load_dotenv
 
 def find_env():
@@ -41,25 +47,25 @@ def find_env():
         cur = cur.parent
     return None
 
-env_path = find_env()
-if env_path:
-    load_dotenv(env_path)
+env = find_env()
+if env:
+    load_dotenv(env)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 API_KEY = os.getenv("RAG_API_KEY", "change-me")
 
 if not OPENAI_API_KEY:
-    raise Exception("❌ Missing OPENAI_API_KEY in .env")
+    raise Exception("Missing OPENAI_API_KEY in .env")
 
-# ======================================================================
-# LOGGING
-# ======================================================================
+# ------------------------------
+# Logging
+# ------------------------------
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("scriptbees")
+logger = logging.getLogger(" scriptbees ")
 
-# ======================================================================
-# CONFIG
-# ======================================================================
+# ------------------------------
+# Config
+# ------------------------------
 CONTENT_DIR = "content"
 MODEL_NAME = "all-MiniLM-L6-v2"
 
@@ -68,29 +74,29 @@ MAX_TOKENS = 150
 TEMPERATURE = 0.2
 
 INDEX_PATH = f"{CONTENT_DIR}/pages.faiss"
-PAGES_PATH = f"{CONTENT_DIR}/pages.json"
 META_PATH = f"{CONTENT_DIR}/pages_meta.json"
+PAGES_PATH = f"{CONTENT_DIR}/pages.json"
 
-# ======================================================================
-# FASTAPI SETUP
-# ======================================================================
+# ------------------------------
+# FastAPI App
+# ------------------------------
 from fastapi import FastAPI, Depends, HTTPException, Security, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="ScriptBees Assistant (Heavy Version)")
+app = FastAPI(title="ScriptBees Assistant — Final Version")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_headers=["*"],
     allow_methods=["*"],
-    allow_headers=["*"]
 )
 
-# ======================================================================
-# MODELS
-# ======================================================================
+# ------------------------------
+# Models
+# ------------------------------
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1)
 
@@ -106,9 +112,9 @@ class AskResponse(BaseModel):
     cached: bool
     response_time_seconds: float
 
-# ======================================================================
-# API KEY SECURITY
-# ======================================================================
+# ------------------------------
+# API Key Security
+# ------------------------------
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 def verify_api_key(req: Request, key: str = Security(api_key_header)):
@@ -116,23 +122,23 @@ def verify_api_key(req: Request, key: str = Security(api_key_header)):
 
     if not incoming:
         auth = req.headers.get("authorization", "")
-        if auth and auth.lower().startswith("bearer "):
+        if auth.lower().startswith("bearer "):
             incoming = auth.split(" ", 1)[1]
 
     if incoming != API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API Key")
+        raise HTTPException(status_code=403, detail="Invalid API key")
 
     return incoming
 
-# ======================================================================
-# CACHE
-# ======================================================================
+# ------------------------------
+# Cache
+# ------------------------------
 cache = {}
 def ckey(q): return hashlib.md5(q.lower().encode()).hexdigest()
 
-# ======================================================================
-# STARTUP (HEAVY LOAD)
-# ======================================================================
+# ------------------------------
+# Startup: Load FAISS + Model
+# ------------------------------
 retriever = None
 generator = None
 
@@ -140,19 +146,17 @@ generator = None
 async def startup():
     global retriever, generator
 
-    logger.info("🚀 Starting ScriptBees Assistant (Heavy Version)")
+    logger.info("🚀 Starting ScriptBees AI Assistant...")
 
     import faiss
     from sentence_transformers import SentenceTransformer
 
-    # ------------------ RETRIEVER ----------------------
+    # Retriever
     class Retriever:
         def __init__(self):
-            logger.info("📦 Loading FAISS index + transformer encoder...")
+            logger.info("📦 Loading FAISS + metadata...")
 
             self.model = SentenceTransformer(MODEL_NAME)
-
-            # load faiss index and metadata
             self.index = faiss.read_index(INDEX_PATH)
 
             with open(META_PATH, "r") as f:
@@ -163,14 +167,10 @@ async def startup():
 
             self.pages = {p["id"]: p for p in pages}
 
-            try:
-                total = int(self.index.ntotal)
-            except Exception:
-                total = len(self.meta)
-            logger.info(f"✓ Loaded {total} documents")
+            logger.info(f"✓ Loaded {self.index.ntotal} ScriptBees pages")
 
-        def retrieve(self, q):
-            vec = self.model.encode([q], normalize_embeddings=True).astype("float32")
+        def retrieve(self, question):
+            vec = self.model.encode([question], normalize_embeddings=True).astype("float32")
             scores, idxs = self.index.search(vec, TOP_K)
 
             results = []
@@ -178,19 +178,20 @@ async def startup():
                 if idx == -1:
                     continue
                 meta = self.meta[idx]
-                page = self.pages[meta["id"]]
+                page = self.pages.get(meta["id"], {})
+
+                # Only ScriptBees pages (from your index)
                 results.append({
-                    "score": float(s),
-                    "url": meta.get("url", ""),
+                    "url": meta.get("url", ""),     # REAL ScriptBees URL
                     "title": meta.get("title", ""),
-                    "text": page.get("text", "")[:500]
+                    "score": float(s),
+                    "text": page.get("text", "")[:1200]
                 })
             return results
 
-    # ------------------ GENERATOR (OpenAI) ----------------------
+    # Generator
     class LLMGenerator:
         def __init__(self):
-            logger.info("🤖 Using OpenAI (gpt-4o-mini) via OpenAI SDK (safe http client)")
             self.client = OpenAI(
                 api_key=OPENAI_API_KEY,
                 http_client=safe_http_client
@@ -198,37 +199,40 @@ async def startup():
 
         def generate(self, question, docs):
             context = docs[0]["text"]
+
             prompt = f"""
-Use ONLY this context to answer:
+You are ScriptBees AI Assistant.
+
+Answer ONLY using this ScriptBees content:
 
 {context}
 
 Question: {question}
 
-Short and accurate answer:
+Give a short and correct answer based ONLY on ScriptBees website.
 """
-            resp = self.client.chat.completions.create(
+
+            res = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE
             )
-            answer = resp.choices[0].message.content.strip()
-            return answer + f"\n\n[Source: {docs[0]['url']}]"
+            return res.choices[0].message.content.strip()
 
     retriever = Retriever()
     generator = LLMGenerator()
 
-    logger.info("✅ Assistant ready.")
+    logger.info("✅ ScriptBees Assistant is READY")
 
-# ======================================================================
-# ROUTES
-# ======================================================================
+# ------------------------------
+# API Route
+# ------------------------------
 @app.post("/api/ask", response_model=AskResponse)
 async def ask(req: AskRequest, key: str = Depends(verify_api_key)):
     start = time.time()
 
-    # cache check
+    # Check cache
     if ckey(req.question) in cache:
         r = cache[ckey(req.question)]
         r["cached"] = True
@@ -238,7 +242,7 @@ async def ask(req: AskRequest, key: str = Depends(verify_api_key)):
     docs = retriever.retrieve(req.question)
     if not docs:
         return AskResponse(
-            answer="No information found.",
+            answer="No matching information found on ScriptBees.",
             sources=[],
             retrieved=[],
             cached=False,
@@ -249,8 +253,8 @@ async def ask(req: AskRequest, key: str = Depends(verify_api_key)):
 
     resp = {
         "answer": answer,
-        "sources": [d["url"] for d in docs],
-        "retrieved": [Source(**d) for d in docs],
+        "sources": [docs[0]["url"]],       # REAL ScriptBees URL
+        "retrieved": [Source(**docs[0])],
         "cached": False,
         "response_time_seconds": time.time() - start
     }
@@ -260,11 +264,11 @@ async def ask(req: AskRequest, key: str = Depends(verify_api_key)):
 
 @app.get("/")
 async def home():
-    return {"status": "online", "version": "heavy"}
+    return {"status": "online", "bot": "ScriptBees AI"}
 
-# ======================================================================
-# RUN (LOCAL)
-# ======================================================================
+# ------------------------------
+# Run Local
+# ------------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

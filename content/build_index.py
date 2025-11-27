@@ -1,57 +1,64 @@
-import os
+import requests
+from bs4 import BeautifulSoup
 import json
+from sentence_transformers import SentenceTransformer
 import numpy as np
 import faiss
-from sentence_transformers import SentenceTransformer
 
-DATA_DIR = "content"
-os.makedirs(DATA_DIR, exist_ok=True)
+SITEMAP = "https://scriptbees.com/sitemap.xml"
 
-INDEX_PATH = os.path.join(DATA_DIR, "pages.faiss")
-PAGES_PATH = os.path.join(DATA_DIR, "pages.json")
-META_PATH = os.path.join(DATA_DIR, "pages_meta.json")
+print("📡 Fetching sitemap...")
+xml = requests.get(SITEMAP).text
+soup = BeautifulSoup(xml, "xml")
 
-# Your documents (replace with real data)
-documents = [
-    {
-        "id": 0,
-        "url": "https://example.com/page1",
-        "title": "Sample Page 1",
-        "text": "This is sample text for page one. This will be used for RAG testing."
-    },
-    {
-        "id": 1,
-        "url": "https://example.com/page2",
-        "title": "Sample Page 2",
-        "text": "Another test document for building FAISS index. This contains RAG information."
-    }
-]
+links = [loc.text for loc in soup.find_all("loc")]
+print(f"Found {len(links)} pages")
 
-# Save pages.json (full documents)
-with open(PAGES_PATH, "w", encoding="utf8") as f:
-    json.dump(documents, f, indent=2)
+pages = []
+meta = []
+texts = []
 
-# Create meta info
-pages_meta = [
-    {"id": doc["id"], "url": doc["url"], "title": doc["title"]}
-    for doc in documents
-]
+for idx, url in enumerate(links):
+    try:
+        print("Scraping:", url)
+        html = requests.get(url, timeout=10).text
+        bs = BeautifulSoup(html, "html.parser")
+        text = bs.get_text(separator=" ", strip=True)
 
-with open(META_PATH, "w", encoding="utf8") as f:
-    json.dump(pages_meta, f, indent=2)
+        pages.append({
+            "id": idx,
+            "text": text
+        })
 
-# Embeddings
+        title = bs.title.string if bs.title else url
+
+        meta.append({
+            "id": idx,
+            "url": url,
+            "title": title
+        })
+
+        texts.append(text)
+
+    except Exception as e:
+        print("Error:", e)
+
+print("Embedding pages...")
+
 model = SentenceTransformer("all-MiniLM-L6-v2")
-embeddings = model.encode([doc["text"] for doc in documents])
+embeddings = model.encode(texts, normalize_embeddings=True).astype("float32")
 
-# FAISS index
-d = embeddings.shape[1]
-index = faiss.IndexFlatL2(d)
-index.add(np.array(embeddings))
+index = faiss.IndexFlatIP(embeddings.shape[1])
+index.add(embeddings)
 
-faiss.write_index(index, INDEX_PATH)
+print("Saving...")
 
-print("✓ All files created:")
-print(" - pages.faiss")
-print(" - pages.json")
-print(" - pages_meta.json")
+with open("content/pages.json", "w", encoding="utf-8") as f:
+    json.dump(pages, f, indent=2)
+
+with open("content/pages_meta.json", "w", encoding="utf-8") as f:
+    json.dump(meta, f, indent=2)
+
+faiss.write_index(index, "content/pages.faiss")
+
+print("DONE! Your ScriptBees RAG is ready.")

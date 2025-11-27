@@ -1,12 +1,27 @@
 [
   {
     "id": 0,
-    "url": "https://example.com/page1",
-    "title": "Sample Page 1"
+    "url": "https://scriptbees.com/wp-sitemap-posts-post-1.xml",
+    "title": "https://scriptbees.com/wp-sitemap-posts-post-1.xml"
   },
   {
     "id": 1,
-    "url": "https://example.com/page2",
-    "title": "Sample Page 2"
+    "url": "https://scriptbees.com/wp-sitemap-posts-page-1.xml",
+    "title": "https://scriptbees.com/wp-sitemap-posts-page-1.xml"
+  },
+  {
+    "id": 2,
+    "url": "https://scriptbees.com/wp-sitemap-taxonomies-category-1.xml",
+    "title": "https://scriptbees.com/wp-sitemap-taxonomies-category-1.xml"
+  },
+  {
+    "id": 3,
+    "url": "https://scriptbees.com/wp-sitemap-taxonomies-post_tag-1.xml",
+    "title": "https://scriptbees.com/wp-sitemap-taxonomies-post_tag-1.xml"
+  },
+  {
+    "id": 4,
+    "url": "https://scriptbees.com/wp-sitemap-users-1.xml",
+    "title": "https://scriptbees.com/wp-sitemap-users-1.xml"
   }
 ]
